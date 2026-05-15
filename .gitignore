@@ -1,0 +1,28 @@
+# Python
+__pycache__/
+*.pyc
+
+# Node
+node_modules/
+
+# Tauri
+gui/src-tauri/target/
+gui/dist/
+
+# Logs
+Communication-Logs/
+log/
+claude-log/
+
+# IDE
+.vscode/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# API key (never commit)
+.api_key
+
+# Release directory (use GitHub Releases instead)
+release/
