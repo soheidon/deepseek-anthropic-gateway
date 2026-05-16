@@ -1,123 +1,151 @@
 # DeepSeek Anthropic Gateway
 
-DeepSeek API の Anthropic 互換エンドポイントを Claude Desktop / Claude Code Desktop から利用するための薄型プロキシ + GUI 管理ツール。
+Thin proxy + GUI manager that routes Claude Desktop / Claude Code API requests to DeepSeek models via DeepSeek's Anthropic-compatible endpoint.
 
-## 概要
+## Overview
 
-Claude Desktop からの Anthropic Messages API リクエストを、DeepSeek の Anthropic 互換エンドポイントに透過転送します。変更するのは `model` フィールドのみで、messages / thinking / tool_use / tool_result / streaming SSE は一切改変しません。
+A transparent proxy that forwards Anthropic Messages API requests to DeepSeek's Anthropic-compatible endpoint. Only the `model` field is rewritten — messages, thinking blocks, tool_use, tool_result, and streaming SSE pass through untouched.
 
-GUI 管理ツール（Tauri v2 + React + TypeScript）でプロキシの起動・停止、設定編集、ログ確認、API キー管理が可能です。
+The GUI management tool (Tauri v2 + React + TypeScript) provides start/stop control, config editing, log viewing, and API key management directly from a native Windows window.
 
-## 検証済みモデル経路
+## Verified Model Routes
 
-| Claude モデル名 | DeepSeek モデル | 実地テスト |
-|----------------|----------------|-----------|
-| claude-sonnet-4-5 | deepseek-v4-pro | PASS (msgs=43, tools 有, stream 有) |
-| claude-haiku-4-5-20251001 | deepseek-v4-flash | PASS (msgs=17, tools 有, stream 有) |
+| Claude Model | DeepSeek Model | Field Test |
+|---|---|---|
+| claude-sonnet-4-5 | deepseek-v4-pro | PASS (msgs=43, tools, stream) |
+| claude-haiku-4-5-20251001 | deepseek-v4-flash | PASS (msgs=17, tools, stream) |
 
-## 必要環境
+Both routes completed multi-turn tool-use conversations without `reasoning_content` or `Invalid model name` errors.
+
+## Prerequisites
 
 - **Python** 3.10+
-- **Windows 10/11**（日本語環境対応）
-- DeepSeek API キー
+- **Windows 10/11** (Japanese locale supported)
+- DeepSeek API key
 
-## クイックスタート
+## Quick Start
 
-### 1. ダウンロード
+### 1. Download
 
-[Releases](https://github.com/soheidon/deepseek-anthropic-gateway/releases) から最新の `deepseek-anthropic-gateway.zip` をダウンロードして展開。
+Download the latest `deepseek-anthropic-gateway.zip` from [Releases](https://github.com/soheidon/deepseek-anthropic-gateway/releases) and extract.
 
-### 2. セットアップ
+### 2. Setup
 
 ```powershell
 setup.bat
 ```
 
-Python 依存パッケージ（fastapi, httpx, uvicorn）がインストールされます。
+Installs Python dependencies (fastapi, httpx, uvicorn).
 
-### 3. 起動
+### 3. Launch
 
-`deepseek-anthropic-gateway-gui.exe` を起動します。
+Run `deepseek-anthropic-gateway-gui.exe`.
 
-### 4. API キー設定
+### 4. Set API Key
 
-GUI の **API キー** タブで DeepSeek API キーを入力し「保存」をクリック。
-Windows ユーザー環境変数 `DEEPSEEK_API_KEY` に永続保存されます。
+Go to the **API Key** tab, enter your DeepSeek API key, and click **Save**.
+The key is persisted as a Windows user environment variable (`DEEPSEEK_API_KEY`).
 
-### 5. プロキシ起動
+### 5. Start Gateway
 
-ヘッダーの **Start Gateway** ボタンをクリック。プロキシが `http://127.0.0.1:4000` で起動します。
+Click **Start Gateway** in the header. The proxy starts on `http://127.0.0.1:4000` as a background process (no console window).
 
-### 6. Claude Desktop 設定
+### 6. Configure Claude Desktop
 
-GUI の **Claude Desktop Setup** タブで設定 JSON をコピーし、Claude Desktop の設定ファイルに貼り付けます。
-自動検出された設定ファイルが一覧表示されるので、適切なファイルを開いて貼り付けてください。
+Go to the **Claude Desktop Setup** tab, copy the JSON config, and paste it into your Claude Desktop settings file. Auto-detected config files are listed — open the appropriate one and paste.
 
-## プロキシ単体での使用（GUI なし）
+## Proxy-Only Usage (no GUI)
 
 ```powershell
-# 依存インストール
 pip install -r requirements.txt
-
-# API キー設定
 setx DEEPSEEK_API_KEY "sk-..."
-
-# 起動
 python proxy_server.py
 ```
 
-## エンドポイント
+## Endpoints
 
-| Method | Path | 説明 |
-|--------|------|------|
-| GET | `/health` | 死活確認 |
-| GET | `/v1/models` | モデル一覧 |
-| POST | `/v1/messages` | Messages API（stream/non-stream） |
-| POST | `/v1/messages/count_tokens` | トークン数カウント |
+| Method | Path | Description |
+|--------|------|-------------|
+| GET | `/health` | Health check |
+| GET | `/v1/models` | List visible models |
+| POST | `/v1/messages` | Messages API (stream + non-stream) |
+| POST | `/v1/messages/count_tokens` | Token counting |
 
-## 設定 (config.json)
+## Configuration (config.json)
 
 ```json
 {
   "model_map": {
+    "claude-sonnet-4-6": "deepseek-v4-pro",
     "claude-sonnet-4-5": "deepseek-v4-pro",
-    "claude-haiku-4-5-20251001": "deepseek-v4-flash"
+    "claude-sonnet": "deepseek-v4-pro",
+    "claude-opus-4-7": "deepseek-v4-pro",
+    "claude-opus-4-5": "deepseek-v4-pro",
+    "claude-opus-4": "deepseek-v4-pro",
+    "claude-opus": "deepseek-v4-pro",
+    "claude-haiku-4-5-20251001": "deepseek-v4-flash",
+    "claude-haiku-4-5": "deepseek-v4-flash",
+    "claude-haiku": "deepseek-v4-flash",
+    "deepseek-v4-pro": "deepseek-v4-pro",
+    "deepseek-v4-flash": "deepseek-v4-flash"
   },
+  "visible_models": [
+    "claude-sonnet-4-6",
+    "claude-sonnet-4-5",
+    "claude-opus-4-7",
+    "claude-haiku-4-5-20251001"
+  ],
   "default_model": "deepseek-v4-pro",
-  "visible_models": ["claude-sonnet-4-5", "claude-haiku-4-5-20251001"],
   "force_anthropic_version": null,
   "enable_cors": false,
   "upstream_url": "https://api.deepseek.com/anthropic"
 }
 ```
 
-> **注意:** 日本語 Windows では `config.json` を **Shift-JIS** で保存する必要があります。GUI の Gateway Settings タブでエンコーディングを切り替えて編集できます。
+| Key | Description |
+|-----|-------------|
+| `model_map` | Claude model name → DeepSeek model name mapping |
+| `visible_models` | Models exposed via `GET /v1/models` |
+| `default_model` | Fallback when model is not in map |
+| `force_anthropic_version` | `null` = passthrough; set to override |
+| `enable_cors` | Enable/disable CORS middleware |
+| `upstream_url` | DeepSeek Anthropic-compatible endpoint URL |
 
-## プロジェクト構成
+> Japanese Windows requires saving `config.json` as **Shift-JIS**. Use the Gateway Settings tab in the GUI to toggle encoding.
+
+## Project Structure
 
 ```
 deepseek-anthropic-gateway/
 ├── README.md
-├── SPEC.md                    仕様書
-├── config.json                モデルマップ設定
-├── proxy_server.py            FastAPI プロキシ本体
-├── requirements.txt           Python 依存
-├── run.bat                    起動スクリプト
-├── icon/                      アイコンソース (SVG)
+├── SPEC.md                    Specification (Japanese)
+├── LICENSE                    MIT License
+├── config.json                Model map configuration
+├── proxy_server.py            FastAPI proxy server
+├── requirements.txt           Python dependencies
+├── run.bat / run-logging.bat  Launch scripts
+├── .gitignore
+├── icon/                      Icon source (SVG, PNG)
 ├── scripts/
-│   ├── phase0_probe.py        Phase 0 検証スクリプト
-│   └── proxy_e2e_test.py      プロキシ経由 E2E テスト
+│   ├── phase0_probe.py        Pre-implementation compatibility probe
+│   └── proxy_e2e_test.py      End-to-end proxy tests
 ├── gui/
-│   ├── src/                   React フロントエンド
-│   ├── src-tauri/             Tauri (Rust) バックエンド
+│   ├── src/                   React frontend (TypeScript)
+│   │   ├── components/        UI components (7 files)
+│   │   ├── hooks/             Custom hooks (5 files)
+│   │   └── i18n/              Japanese/English translations
+│   ├── src-tauri/             Tauri backend (Rust)
+│   │   ├── src/lib.rs         18 Tauri commands
+│   │   └── Cargo.toml
 │   └── package.json
-├── Communication-Logs/        プロキシ実行ログ
-└── release/                   ビルド済み配布物
+├── Communication-Logs/        Proxy runtime logs
+├── claude-log/                Development session logs
+└── release/                   Built distributable
 ```
 
-## 開発
+## Dev Build
 
-### GUI のビルド
+### GUI
 
 ```bash
 cd gui
@@ -125,37 +153,37 @@ npm install
 npm run tauri build
 ```
 
-ビルドには [Rust](https://rustup.rs/) stable ツールチェーンと Node.js v24+ が必要です。
+Requires [Rust](https://rustup.rs/) stable toolchain and Node.js 24+.
 
-### GUI の開発モード起動
+### Dev Mode
 
 ```bash
-# ターミナル 1: プロキシ起動
+# Terminal 1: Start proxy
 $env:DEEPSEEK_API_KEY = "sk-..."
 python proxy_server.py
 
-# ターミナル 2: GUI 開発モード
+# Terminal 2: Start GUI in dev mode
 cd gui
 npm run tauri dev
 ```
 
-## トラブルシュート
+## Troubleshooting
 
-### ポート 4000 が使用中
+### Port 4000 in use
 
 ```powershell
 netstat -ano | findstr :4000
 taskkill /PID <PID> /F
 ```
 
-### reasoning_content エラー
+### `reasoning_content` error
 
-ログに `reasoning_content must be passed back` が出た場合は該当ログを保存して Issue 報告してください。
+If the log shows `reasoning_content must be passed back`, save the relevant log and file an issue.
 
 ### Invalid model name
 
-`config.json` の `model_map` に対象モデル名を追加してください。
+Add the model name to `model_map` in `config.json`.
 
-## ライセンス
+## License
 
-MIT
+MIT — see [LICENSE](LICENSE) for details.
