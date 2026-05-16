@@ -62,11 +62,8 @@ export default function Header({
             {proxyError.length > 120 ? proxyError.slice(0, 120) + "…" : proxyError}
           </span>
         )}
-        {successMessage && (
-          <span className="proxy-success">{successMessage}</span>
-        )}
       </div>
-      {proxyDiag && (
+      {proxyDiag && proxyError && (
         <div className="proxy-diag">
           <div className="proxy-diag-header">
             <span>Diagnostics</span>

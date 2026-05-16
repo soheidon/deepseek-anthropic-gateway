@@ -48,13 +48,10 @@ export function useProxyToggle(): {
         setLoading(false);
         if (result.success) {
           setManagedRunning(true);
-          setDiag(result.log);
-          if (!result.log) {
-            setSuccessMessage("Proxy started successfully.");
-          }
+          // do not set diag or successMessage on success
         } else if (result.log === "already_running") {
           setManagedRunning(true);
-          setSuccessMessage("Proxy already running.");
+          // do not set successMessage
         }
       })
       .catch((e: unknown) => {
@@ -71,11 +68,10 @@ export function useProxyToggle(): {
     setDiag(null);
     setSuccessMessage(null);
     invoke<string>("stop_proxy")
-      .then((diagStr) => {
+      .then((_diagStr) => {
         setLoading(false);
         setManagedRunning(false);
-        setDiag(diagStr);
-        setSuccessMessage("Gateway stopped.");
+        // do not set diag or successMessage on success
       })
       .catch((e: unknown) => {
         setLoading(false);
