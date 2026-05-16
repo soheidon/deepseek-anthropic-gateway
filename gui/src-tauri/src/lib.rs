@@ -104,7 +104,7 @@ fn check_gateway_status(state: tauri::State<'_, ProxyState>) -> GatewayStatusRes
 
     // Check managed child
     let (managed_child_running, managed_child_pid) = {
-        let guard = match state.child.lock() {
+        let mut guard = match state.child.lock() {
             Ok(g) => g,
             Err(_) => {
                 return GatewayStatusResponse {
@@ -118,7 +118,7 @@ fn check_gateway_status(state: tauri::State<'_, ProxyState>) -> GatewayStatusRes
                 };
             }
         };
-        match &*guard {
+        match &mut *guard {
             Some(child) => {
                 match child.try_wait() {
                     Ok(Some(_)) => (false, None),
