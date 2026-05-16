@@ -370,6 +370,9 @@ body {
 .status-card-value.red {
   color: var(--error);
 }
+.status-card-value.muted {
+  color: var(--text-muted);
+}
 
 .log-content {
   white-space: pre-wrap;

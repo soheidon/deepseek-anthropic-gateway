@@ -26,20 +26,6 @@ export default function StatusPanel({ health, healthError, healthLoading }: Stat
       </div>
       <div className="panel-content">
         <div className="status-grid">
-          {/* Health card */}
-          <div className="status-card">
-            <div className="status-card-label">{t("statusPanel.gatewayHealth")}</div>
-            {healthLoading ? (
-              <div className="loading" />
-            ) : healthError ? (
-              <div className="error-text">{healthError}</div>
-            ) : health ? (
-              <div className={`status-card-value ${health.reachable ? "green" : "red"}`}>
-                {health.reachable ? t("statusPanel.ok") : t("statusPanel.unreachable")}
-              </div>
-            ) : null}
-          </div>
-
           {/* Port 4000 card */}
           <div className="status-card">
             <div className="status-card-label">{t("statusPanel.port4000")}</div>
@@ -52,7 +38,7 @@ export default function StatusPanel({ health, healthError, healthLoading }: Stat
                 {t("statusPanel.listening")}
               </div>
             ) : (
-              <div className="status-card-value red">{t("statusPanel.notListening")}</div>
+              <div className="status-card-value muted">{t("statusPanel.notListening")}</div>
             )}
           </div>
 
