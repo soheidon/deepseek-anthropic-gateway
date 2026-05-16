@@ -555,6 +555,54 @@ impl ProxyState {
 // Command 10: Start proxy
 // ---------------------------------------------------------------------------
 
+fn find_python() -> Option<std::path::PathBuf> {
+    // 1. Try common command names (python, python3, py launcher)
+    for cmd in &["python", "python3", "py"] {
+        if std::process::Command::new(cmd)
+            .arg("--version")
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .spawn()
+            .map(|mut c| c.wait().map(|s| s.success()).unwrap_or(false))
+            .unwrap_or(false)
+        {
+            return Some(std::path::PathBuf::from(cmd));
+        }
+    }
+
+    // 2. Search %LOCALAPPDATA%\Programs\Python for python.exe
+    if let Ok(local) = std::env::var("LOCALAPPDATA") {
+        let base = std::path::PathBuf::from(&local).join("Programs").join("Python");
+        if let Ok(entries) = std::fs::read_dir(&base) {
+            for entry in entries.flatten() {
+                let py = entry.path().join("python.exe");
+                if py.exists() {
+                    return Some(py);
+                }
+            }
+        }
+    }
+
+    // 3. Search C:\Python* and C:\Program Files\Python*
+    for root in ["C:\\", "C:\\Program Files\\"] {
+        let root_path = std::path::Path::new(root);
+        if let Ok(entries) = std::fs::read_dir(root_path) {
+            for entry in entries.flatten() {
+                let name = entry.file_name();
+                let name = name.to_string_lossy();
+                if name.starts_with("Python") && entry.path().is_dir() {
+                    let py = entry.path().join("python.exe");
+                    if py.exists() {
+                        return Some(py);
+                    }
+                }
+            }
+        }
+    }
+
+    None
+}
+
 #[tauri::command]
 fn start_proxy(state: tauri::State<'_, ProxyState>) -> Result<String, String> {
     let mut guard = state.child.lock().map_err(|e| e.to_string())?;
@@ -571,14 +619,17 @@ fn start_proxy(state: tauri::State<'_, ProxyState>) -> Result<String, String> {
         .map_err(|_| "DEEPSEEK_API_KEY not set — set it as an environment variable".to_string())?;
 
     let project_root = project_root();
-    let mut child = std::process::Command::new("python")
+    let python = find_python()
+        .ok_or_else(|| "Python not found. Install Python 3.10+ and ensure it is in PATH, or use 'py' launcher.".to_string())?;
+
+    let mut child = std::process::Command::new(&python)
         .arg("proxy_server.py")
         .current_dir(&project_root)
         .env("DEEPSEEK_API_KEY", &deepseek_key)
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::piped())
         .spawn()
-        .map_err(|e| format!("Cannot start proxy (python={}, dir={}): {}", "python", project_root.display(), e))?;
+        .map_err(|e| format!("Cannot start proxy (python={}, dir={}): {}", python.display(), project_root.display(), e))?;
 
     let pid = child.id();
 
