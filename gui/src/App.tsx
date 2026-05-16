@@ -16,18 +16,18 @@ export default function App() {
   const { data: health, error: healthError, loading: healthLoading } = useHealthCheck(managedRunning);
 
   const proxyStatus = useMemo(() => {
-    if (managedRunning) return "running";
+    if (health?.managed_child_running) return "running";
     if (!health) return "unknown";
     if (health.reachable) return "detected";
     return "unreachable";
-  }, [health, managedRunning]);
+  }, [health]);
 
   return (
     <LanguageProvider>
       <div className="app">
         <Header
           proxyStatus={proxyStatus}
-          managedRunning={managedRunning}
+          managedRunning={health?.managed_child_running ?? false}
           proxyLoading={proxyLoading}
           proxyError={proxyError}
           proxyDiag={proxyDiag}
