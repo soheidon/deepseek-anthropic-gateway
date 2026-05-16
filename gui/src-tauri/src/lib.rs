@@ -3,6 +3,9 @@ use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 use std::net::TcpStream;
 use std::sync::Mutex;
+use std::io::{BufRead, BufReader};
+use std::fs::File;
+use std::time::Duration;
 
 // ---------------------------------------------------------------------------
 // Path helpers
@@ -553,6 +556,21 @@ impl ProxyState {
 }
 
 // ---------------------------------------------------------------------------
+// Helper: read last N lines of a file
+// ---------------------------------------------------------------------------
+
+fn read_last_lines(path: &std::path::Path, n: usize) -> Vec<String> {
+    let file = match File::open(path) {
+        Ok(f) => f,
+        Err(_) => return Vec::new(),
+    };
+    let reader = BufReader::new(file);
+    let lines: Vec<String> = reader.lines().filter_map(|l| l.ok()).collect();
+    let start = if lines.len() > n { lines.len() - n } else { 0 };
+    lines[start..].to_vec()
+}
+
+// ---------------------------------------------------------------------------
 // Command 10: Start proxy
 // ---------------------------------------------------------------------------
 
@@ -628,6 +646,30 @@ fn start_proxy(state: tauri::State<'_, ProxyState>) -> Result<StartProxyResult, 
     let uvicorn_log_path = logs_dir.join("uvicorn-stdout-stderr.log");
     diag.push(format!("uvicorn log: {}", uvicorn_log_path.display()));
 
+    // Write startup marker before spawning
+    {
+        use std::io::Write;
+        let now = Local::now();
+        let marker = format!(
+            "===== Starting proxy from GUI at {} =====\n\
+             project_root: {}\n\
+             python: {}\n\
+             command: {} proxy_server.py\n\
+             =====\n",
+            now.format("%Y-%m-%d %H:%M:%S"),
+            root.display(),
+            python,
+            python
+        );
+        if let Ok(mut f) = std::fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(&uvicorn_log_path)
+        {
+            let _ = f.write_all(marker.as_bytes());
+        }
+    }
+
     let log_file = std::fs::OpenOptions::new()
         .create(true)
         .append(true)
@@ -663,6 +705,13 @@ fn start_proxy(state: tauri::State<'_, ProxyState>) -> Result<StartProxyResult, 
             Ok(Some(status)) => {
                 diag.push(format!("Process exited with code {:?} after {:.1}s", status.code(), start.elapsed().as_secs_f32()));
                 diag.push(format!("See uvicorn log: {}", uvicorn_log_path.display()));
+                // Read last 80 lines of uvicorn log
+                let tail = read_last_lines(&uvicorn_log_path, 80);
+                if !tail.is_empty() {
+                    diag.push("--- last 80 lines of uvicorn log ---".into());
+                    diag.extend(tail);
+                    diag.push("--- end of uvicorn log ---".into());
+                }
                 return Err(format!("Proxy exited during startup. Diagnostics:\n{}", diag.join("\n")));
             }
             Err(e) => {
@@ -692,6 +741,13 @@ fn start_proxy(state: tauri::State<'_, ProxyState>) -> Result<StartProxyResult, 
     if !port_ok {
         diag.push(format!("Port 4000 did not become reachable within {}s", timeout.as_secs()));
         diag.push(format!("See uvicorn log: {}", uvicorn_log_path.display()));
+        // Read last 80 lines of uvicorn log
+        let tail = read_last_lines(&uvicorn_log_path, 80);
+        if !tail.is_empty() {
+            diag.push("--- last 80 lines of uvicorn log ---".into());
+            diag.extend(tail);
+            diag.push("--- end of uvicorn log ---".into());
+        }
         // Kill the process since it's not working
         let _ = child.kill();
         let _ = child.wait();

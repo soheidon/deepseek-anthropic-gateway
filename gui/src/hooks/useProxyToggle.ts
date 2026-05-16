@@ -52,7 +52,9 @@ export function useProxyToggle(): {
       })
       .catch((e: unknown) => {
         setLoading(false);
-        setError(String(e));
+        const errMsg = String(e);
+        setError(errMsg);
+        setDiag(errMsg); // also show in diagnostics area
       });
   }, []);
 

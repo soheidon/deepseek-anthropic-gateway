@@ -13,12 +13,42 @@ import json
 import os
 import sys
 import logging
+import traceback
 from typing import Optional
 
 import httpx
 from fastapi import FastAPI, Request, Response
 from fastapi.responses import StreamingResponse, JSONResponse
 from starlette.background import BackgroundTask
+
+# ---------------------------------------------------------------------------
+# Early startup logging (before FastAPI app creation)
+# ---------------------------------------------------------------------------
+
+_early_log_path = os.path.join(
+    os.path.dirname(os.path.abspath(__file__)),
+    "Communication-Logs",
+    "uvicorn-stdout-stderr.log",
+)
+os.makedirs(os.path.dirname(_early_log_path), exist_ok=True)
+
+_early_logger = logging.getLogger("proxy_early")
+_early_logger.setLevel(logging.DEBUG)
+_early_handler = logging.FileHandler(_early_log_path, encoding="utf-8", mode="a")
+_early_handler.setFormatter(logging.Formatter("%(asctime)s [%(levelname)s] %(message)s"))
+_early_logger.handlers.clear()
+_early_logger.addHandler(_early_handler)
+_early_logger.propagate = False
+
+_early_logger.info("=== proxy_server.py early startup ===")
+_early_logger.info("sys.executable: %s", sys.executable)
+_early_logger.info("os.getcwd(): %s", os.getcwd())
+_early_logger.info("__file__: %s", __file__)
+_config_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "config.json")
+_early_logger.info("config.json exists: %s", os.path.isfile(_config_path))
+_key = os.environ.get("DEEPSEEK_API_KEY", "")
+_early_logger.info("DEEPSEEK_API_KEY present: %s, length: %d", bool(_key), len(_key))
+_early_logger.info("=== early startup done ===")
 
 # ---------------------------------------------------------------------------
 # Config
@@ -312,11 +342,17 @@ async def shutdown():
 if __name__ == "__main__":
     import uvicorn
     logger.info("Starting uvicorn on 127.0.0.1:4000")
-    uvicorn.run(
-        app,
-        host="127.0.0.1",
-        port=4000,
-        log_level="info",
-        access_log=False,
-        log_config=None,
-    )
+    try:
+        uvicorn.run(
+            app,
+            host="127.0.0.1",
+            port=4000,
+            log_level="info",
+            access_log=False,
+            log_config=None,
+        )
+    except Exception:
+        logger.exception("uvicorn.run() raised an exception")
+        # Also write to early log for visibility
+        _early_logger.exception("uvicorn.run() raised an exception")
+        raise
