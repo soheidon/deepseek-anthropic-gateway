@@ -5,6 +5,7 @@ interface HeaderProps {
   proxyStatus: "running" | "detected" | "unreachable" | "unknown";
   managedRunning: boolean;
   proxyLoading: boolean;
+  proxyError: string | null;
   onStart: () => void;
   onStop: () => void;
 }
@@ -13,6 +14,7 @@ export default function Header({
   proxyStatus,
   managedRunning,
   proxyLoading,
+  proxyError,
   onStart,
   onStop,
 }: HeaderProps) {
@@ -48,6 +50,11 @@ export default function Header({
           >
             {t("header.startGateway")}
           </button>
+        )}
+        {proxyError && (
+          <span className="proxy-error" title={proxyError}>
+            {proxyError.length > 80 ? proxyError.slice(0, 80) + "…" : proxyError}
+          </span>
         )}
       </div>
       <div className="lang-switcher">

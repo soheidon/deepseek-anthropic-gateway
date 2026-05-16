@@ -26,8 +26,19 @@ from starlette.background import BackgroundTask
 
 CONFIG_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "config.json")
 
-with open(CONFIG_PATH, encoding="utf-8") as f:
-    config = json.load(f)
+def _read_config_json(path: str) -> dict:
+    """Read config.json, trying UTF-8 first then Shift-JIS (for Japanese Windows)."""
+    with open(path, "rb") as f:
+        raw = f.read()
+    for enc in ("utf-8", "utf-8-sig", "shift_jis", "cp932"):
+        try:
+            return json.loads(raw.decode(enc))
+        except (UnicodeDecodeError, json.JSONDecodeError):
+            continue
+    # Last resort: replace undecodable bytes
+    return json.loads(raw.decode("utf-8", errors="replace"))
+
+config = _read_config_json(CONFIG_PATH)
 
 MODEL_MAP: dict[str, str] = config["model_map"]
 DEFAULT_MODEL: str = config["default_model"]

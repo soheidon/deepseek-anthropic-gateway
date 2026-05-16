@@ -8,6 +8,16 @@ use std::sync::Mutex;
 // ---------------------------------------------------------------------------
 
 fn project_root() -> PathBuf {
+    // Prefer the EXE's parent directory (so the release/ folder works standalone).
+    // Fall back to CARGO_MANIFEST_DIR/../.. for dev mode (cargo run / tauri dev).
+    if let Ok(exe) = std::env::current_exe() {
+        if let Some(parent) = exe.parent() {
+            let proxy = parent.join("proxy_server.py");
+            if proxy.exists() {
+                return parent.to_path_buf();
+            }
+        }
+    }
     let manifest = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
     manifest.join("..").join("..")
 }
@@ -561,14 +571,58 @@ fn start_proxy(state: tauri::State<'_, ProxyState>) -> Result<String, String> {
         .map_err(|_| "DEEPSEEK_API_KEY not set — set it as an environment variable".to_string())?;
 
     let project_root = project_root();
-    let child = std::process::Command::new("python")
+    let mut child = std::process::Command::new("python")
         .arg("proxy_server.py")
         .current_dir(&project_root)
         .env("DEEPSEEK_API_KEY", &deepseek_key)
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
         .spawn()
-        .map_err(|e| format!("Cannot start proxy: {}", e))?;
+        .map_err(|e| format!("Cannot start proxy (python={}, dir={}): {}", "python", project_root.display(), e))?;
 
     let pid = child.id();
+
+    // Give the process a moment to start and bind the port.
+    // If it exits immediately, read stderr and return the error.
+    std::thread::sleep(std::time::Duration::from_millis(800));
+    match child.try_wait() {
+        Ok(Some(status)) => {
+            // Process exited immediately — capture stderr for diagnostics
+            let stderr = child
+                .stderr
+                .take()
+                .and_then(|mut r| {
+                    use std::io::Read;
+                    let mut buf = String::new();
+                    r.read_to_string(&mut buf).ok().map(|_| buf)
+                })
+                .unwrap_or_default();
+            let stdout = child
+                .stdout
+                .take()
+                .and_then(|mut r| {
+                    use std::io::Read;
+                    let mut buf = String::new();
+                    r.read_to_string(&mut buf).ok().map(|_| buf)
+                })
+                .unwrap_or_default();
+            let detail = if stderr.is_empty() { stdout } else { stderr };
+            let detail = detail.trim();
+            let detail = if detail.is_empty() {
+                format!("exit code {}", status.code().map_or(-1, |c| c))
+            } else {
+                detail.to_string()
+            };
+            return Err(format!("Proxy exited immediately: {}", detail));
+        }
+        Ok(None) => {
+            // Still running — good
+        }
+        Err(e) => {
+            return Err(format!("Cannot check proxy status: {}", e));
+        }
+    }
+
     *guard = Some(child);
     Ok(format!("started:{}", pid))
 }

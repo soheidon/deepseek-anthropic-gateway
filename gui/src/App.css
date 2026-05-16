@@ -68,6 +68,15 @@ body {
 .header-proxy-section {
   display: flex;
   align-items: center;
+  gap: 8px;
+}
+.proxy-error {
+  font-size: 11px;
+  color: var(--error);
+  max-width: 300px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .lang-switcher {
   display: flex;
