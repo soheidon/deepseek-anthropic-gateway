@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import type { GatewayStatus, AsyncState } from "../types";
 
-export function useHealthCheck(): AsyncState<GatewayStatus> {
+export function useHealthCheck(poll?: boolean): AsyncState<GatewayStatus> {
   const [data, setData] = useState<GatewayStatus | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
@@ -19,6 +19,12 @@ export function useHealthCheck(): AsyncState<GatewayStatus> {
   useEffect(() => {
     refresh();
   }, [refresh]);
+
+  useEffect(() => {
+    if (!poll) return;
+    const id = setInterval(refresh, 3000);
+    return () => clearInterval(id);
+  }, [poll, refresh]);
 
   return { data, error, loading, refresh };
 }

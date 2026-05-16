@@ -3,9 +3,13 @@ import { invoke } from "@tauri-apps/api/core";
 import { useHealthCheck } from "../hooks/useHealthCheck";
 import { useTranslation } from "../i18n";
 
-export default function StatusPanel() {
+interface StatusPanelProps {
+  poll?: boolean;
+}
+
+export default function StatusPanel({ poll }: StatusPanelProps) {
   const { t } = useTranslation();
-  const { data: health, error: healthErr, loading: healthLoading } = useHealthCheck();
+  const { data: health, error: healthErr, loading: healthLoading } = useHealthCheck(poll);
   const [apiKeySet, setApiKeySet] = useState<boolean | null>(null);
 
   useEffect(() => {
