@@ -5,6 +5,7 @@ use std::net::TcpStream;
 use std::sync::Mutex;
 use std::io::{BufRead, BufReader};
 use std::fs::File;
+use std::os::windows::process::CommandExt;
 
 // ---------------------------------------------------------------------------
 // Path helpers
@@ -174,6 +175,7 @@ fn set_env_api_key(key: String) -> Result<(), String> {
     // setx doesn't affect the current process, so we also call set_var below
     let output = std::process::Command::new("setx")
         .args(["DEEPSEEK_API_KEY", &trimmed])
+        .creation_flags(0x08000000)
         .output()
         .map_err(|e| format!("Failed to run setx: {}", e))?;
 
@@ -202,6 +204,7 @@ pub struct PortProcessInfo {
 fn get_port_4000_process() -> Result<PortProcessInfo, String> {
     let output = std::process::Command::new("cmd")
         .args(["/C", "netstat -ano | findstr :4000"])
+        .creation_flags(0x08000000)
         .output()
         .map_err(|e| e.to_string())?;
 
@@ -699,6 +702,7 @@ fn start_proxy(state: tauri::State<'_, ProxyState>) -> Result<StartProxyResult, 
     // Resolve python.exe via cmd so PATH matches the user's normal shell
     let python = std::process::Command::new("cmd")
         .args(["/C", "where python 2>nul"])
+        .creation_flags(0x08000000)
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::null())
         .output()
@@ -758,6 +762,7 @@ fn start_proxy(state: tauri::State<'_, ProxyState>) -> Result<StartProxyResult, 
         .arg("proxy_server.py")
         .current_dir(&root)
         .env("DEEPSEEK_API_KEY", &deepseek_key)
+        .creation_flags(0x08000000)
         .stdin(std::process::Stdio::null())
         .stdout(std::process::Stdio::from(log_file))
         .stderr(std::process::Stdio::from(err_file))
