@@ -1,15 +1,16 @@
 import { useEffect, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
-import { useHealthCheck } from "../hooks/useHealthCheck";
 import { useTranslation } from "../i18n";
+import type { GatewayStatus } from "../types";
 
 interface StatusPanelProps {
-  poll?: boolean;
+  health: GatewayStatus | null;
+  healthError: string | null;
+  healthLoading: boolean;
 }
 
-export default function StatusPanel({ poll }: StatusPanelProps) {
+export default function StatusPanel({ health, healthError, healthLoading }: StatusPanelProps) {
   const { t } = useTranslation();
-  const { data: health, error: healthErr, loading: healthLoading } = useHealthCheck(poll);
   const [apiKeySet, setApiKeySet] = useState<boolean | null>(null);
 
   useEffect(() => {
@@ -30,8 +31,8 @@ export default function StatusPanel({ poll }: StatusPanelProps) {
             <div className="status-card-label">{t("statusPanel.gatewayHealth")}</div>
             {healthLoading ? (
               <div className="loading" />
-            ) : healthErr ? (
-              <div className="error-text">{healthErr}</div>
+            ) : healthError ? (
+              <div className="error-text">{healthError}</div>
             ) : health ? (
               <div className={`status-card-value ${health.reachable ? "green" : "red"}`}>
                 {health.reachable ? t("statusPanel.ok") : t("statusPanel.unreachable")}
@@ -44,8 +45,8 @@ export default function StatusPanel({ poll }: StatusPanelProps) {
             <div className="status-card-label">{t("statusPanel.port4000")}</div>
             {healthLoading ? (
               <div className="loading" />
-            ) : healthErr ? (
-              <div className="error-text">{healthErr}</div>
+            ) : healthError ? (
+              <div className="error-text">{healthError}</div>
             ) : health?.port_listening ? (
               <div className="status-card-value green">
                 {t("statusPanel.listening")}
