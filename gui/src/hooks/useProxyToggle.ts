@@ -1,16 +1,20 @@
 import { useState, useEffect, useCallback } from "react";
 import { invoke } from "@tauri-apps/api/core";
+import type { StartProxyResult } from "../types";
 
 export function useProxyToggle(): {
   managedRunning: boolean;
   loading: boolean;
   error: string | null;
+  diag: string | null;
   start: () => void;
   stop: () => void;
+  clearDiag: () => void;
 } {
   const [managedRunning, setManagedRunning] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [diag, setDiag] = useState<string | null>(null);
 
   // Check status on mount
   useEffect(() => {
@@ -35,12 +39,14 @@ export function useProxyToggle(): {
   const start = useCallback(() => {
     setLoading(true);
     setError(null);
-    invoke<string>("start_proxy")
-      .then((msg) => {
+    setDiag(null);
+    invoke<StartProxyResult>("start_proxy")
+      .then((result) => {
         setLoading(false);
-        if (msg === "already_running") {
+        if (result.success) {
           setManagedRunning(true);
-        } else if (msg.startsWith("started:")) {
+          setDiag(result.log);
+        } else if (result.log === "already_running") {
           setManagedRunning(true);
         }
       })
@@ -53,6 +59,7 @@ export function useProxyToggle(): {
   const stop = useCallback(() => {
     setLoading(true);
     setError(null);
+    setDiag(null);
     invoke<string>("stop_proxy")
       .then(() => {
         setLoading(false);
@@ -64,5 +71,7 @@ export function useProxyToggle(): {
       });
   }, []);
 
-  return { managedRunning, loading, error, start, stop };
+  const clearDiag = useCallback(() => setDiag(null), []);
+
+  return { managedRunning, loading, error, diag, start, stop, clearDiag };
 }

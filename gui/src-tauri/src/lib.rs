@@ -1,6 +1,5 @@
 use chrono::Local;
 use serde::{Deserialize, Serialize};
-use std::os::windows::process::CommandExt;
 use std::path::PathBuf;
 use std::sync::Mutex;
 
@@ -556,24 +555,52 @@ impl ProxyState {
 // Command 10: Start proxy
 // ---------------------------------------------------------------------------
 
-const CREATE_NEW_CONSOLE: u32 = 0x00000010;
+#[derive(Serialize)]
+pub struct StartProxyResult {
+    success: bool,
+    pid: u32,
+    python: String,
+    dir: String,
+    log: String,
+}
 
 #[tauri::command]
-fn start_proxy(state: tauri::State<'_, ProxyState>) -> Result<String, String> {
+fn start_proxy(state: tauri::State<'_, ProxyState>) -> Result<StartProxyResult, String> {
+    let mut diag: Vec<String> = Vec::new();
+
     let mut guard = state.child.lock().map_err(|e| e.to_string())?;
 
     if let Some(ref mut child) = *guard {
         match child.try_wait() {
             Ok(Some(_)) => *guard = None,
-            Ok(None) => return Ok("already_running".into()),
+            Ok(None) => return Ok(StartProxyResult {
+                success: false, pid: 0,
+                python: String::new(), dir: String::new(),
+                log: "already_running".into(),
+            }),
             Err(e) => return Err(format!("Cannot check child status: {}", e)),
         }
     }
 
-    let deepseek_key = std::env::var("DEEPSEEK_API_KEY")
-        .map_err(|_| "DEEPSEEK_API_KEY not set — set it as an environment variable".to_string())?;
+    let deepseek_key = match std::env::var("DEEPSEEK_API_KEY") {
+        Ok(k) => {
+            diag.push(format!("DEEPSEEK_API_KEY: set (len={})", k.len()));
+            k
+        }
+        Err(_) => {
+            diag.push("DEEPSEEK_API_KEY: NOT SET".into());
+            return Err("DEEPSEEK_API_KEY not set — set it in the API Key tab first.".into());
+        }
+    };
 
     let root = project_root();
+    diag.push(format!("project_root: {}", root.display()));
+
+    let proxy_py = root.join("proxy_server.py");
+    diag.push(format!("proxy_server.py exists: {}", proxy_py.exists()));
+
+    let config_json = root.join("config.json");
+    diag.push(format!("config.json exists: {}", config_json.exists()));
 
     // Resolve python.exe via cmd so PATH matches the user's normal shell
     let python = std::process::Command::new("cmd")
@@ -584,22 +611,58 @@ fn start_proxy(state: tauri::State<'_, ProxyState>) -> Result<String, String> {
         .ok()
         .and_then(|out| String::from_utf8(out.stdout).ok())
         .map(|s| s.lines().next().unwrap_or("").trim().to_string())
-        .filter(|s| !s.is_empty())
-        .ok_or_else(|| "Python not found. Install Python 3.10+ or use 'py' launcher.".to_string())?;
+        .filter(|s| !s.is_empty());
+    diag.push(format!("where python result: {:?}", python));
 
-    // Spawn in a new visible console window so the user can see the proxy output.
-    // This matches the behavior of running "python proxy_server.py" from cmd.
-    let child = std::process::Command::new(&python)
+    let python = python
+        .ok_or_else(|| format!("Python not found. Diagnostics:\n{}", diag.join("\n")))?;
+
+    diag.push(format!("Using python: {}", python));
+    diag.push(format!("Launching: {} proxy_server.py in {}", python, root.display()));
+
+    let mut child = std::process::Command::new(&python)
         .arg("proxy_server.py")
         .current_dir(&root)
         .env("DEEPSEEK_API_KEY", &deepseek_key)
-        .creation_flags(CREATE_NEW_CONSOLE)
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
         .spawn()
-        .map_err(|e| format!("Cannot start proxy (python={}, dir={}): {}", python, root.display(), e))?;
+        .map_err(|e| format!("Cannot start proxy: {}\nDiagnostics:\n{}", e, diag.join("\n")))?;
 
     let pid = child.id();
+    diag.push(format!("Spawned PID: {}", pid));
+
+    // Wait 2s for uvicorn to bind the port, then check if still alive
+    std::thread::sleep(std::time::Duration::from_millis(2000));
+    match child.try_wait() {
+        Ok(Some(status)) => {
+            let stderr = child.stderr.take()
+                .and_then(|mut r| { use std::io::Read; let mut b = String::new(); r.read_to_string(&mut b).ok().map(|_| b) })
+                .unwrap_or_default();
+            let stdout = child.stdout.take()
+                .and_then(|mut r| { use std::io::Read; let mut b = String::new(); r.read_to_string(&mut b).ok().map(|_| b) })
+                .unwrap_or_default();
+            diag.push(format!("Exit code: {:?}", status.code()));
+            if !stderr.is_empty() { diag.push(format!("stderr:\n{}", stderr.trim())); }
+            if !stdout.is_empty() { diag.push(format!("stdout:\n{}", stdout.trim())); }
+            return Err(format!("Proxy exited after 2s. Diagnostics:\n{}", diag.join("\n")));
+        }
+        Ok(None) => {
+            diag.push("Process still running after 2s — port should be bound".into());
+        }
+        Err(e) => {
+            return Err(format!("Cannot check proxy status: {}", e));
+        }
+    }
+
     *guard = Some(child);
-    Ok(format!("started:{}", pid))
+    Ok(StartProxyResult {
+        success: true,
+        pid,
+        python,
+        dir: root.display().to_string(),
+        log: diag.join("\n"),
+    })
 }
 
 // ---------------------------------------------------------------------------

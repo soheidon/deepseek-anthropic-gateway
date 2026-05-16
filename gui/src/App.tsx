@@ -13,7 +13,7 @@ import { LanguageProvider } from "./i18n";
 export default function App() {
   const [activeTab, setActiveTab] = useState<TabId>("dashboard");
   const { data: health } = useHealthCheck();
-  const { managedRunning, loading: proxyLoading, error: proxyError, start, stop } = useProxyToggle();
+  const { managedRunning, loading: proxyLoading, error: proxyError, diag: proxyDiag, start, stop, clearDiag } = useProxyToggle();
 
   const proxyStatus = useMemo(() => {
     if (managedRunning) return "running";
@@ -31,8 +31,10 @@ export default function App() {
           managedRunning={managedRunning}
           proxyLoading={proxyLoading}
           proxyError={proxyError}
+          proxyDiag={proxyDiag}
           onStart={start}
           onStop={stop}
+          onClearDiag={clearDiag}
         />
         <TabBar activeTab={activeTab} onTabChange={setActiveTab} />
         {activeTab === "dashboard" ? (

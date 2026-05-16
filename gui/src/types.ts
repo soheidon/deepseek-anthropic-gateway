@@ -46,6 +46,15 @@ export interface ClaudeConfigCandidate {
   likely_config: boolean;
 }
 
+// ---- Proxy start result ----
+export interface StartProxyResult {
+  success: boolean;
+  pid: number;
+  python: string;
+  dir: string;
+  log: string;
+}
+
 // ---- Hook shape ----
 export interface AsyncState<T> {
   data: T | null;

@@ -6,8 +6,10 @@ interface HeaderProps {
   managedRunning: boolean;
   proxyLoading: boolean;
   proxyError: string | null;
+  proxyDiag: string | null;
   onStart: () => void;
   onStop: () => void;
+  onClearDiag: () => void;
 }
 
 export default function Header({
@@ -15,8 +17,10 @@ export default function Header({
   managedRunning,
   proxyLoading,
   proxyError,
+  proxyDiag,
   onStart,
   onStop,
+  onClearDiag,
 }: HeaderProps) {
   const { t } = useTranslation();
   const { lang, setLang } = useContext(LanguageContext);
@@ -53,10 +57,19 @@ export default function Header({
         )}
         {proxyError && (
           <span className="proxy-error" title={proxyError}>
-            {proxyError.length > 80 ? proxyError.slice(0, 80) + "…" : proxyError}
+            {proxyError.length > 120 ? proxyError.slice(0, 120) + "…" : proxyError}
           </span>
         )}
       </div>
+      {proxyDiag && (
+        <div className="proxy-diag">
+          <div className="proxy-diag-header">
+            <span>Diagnostics</span>
+            <button className="btn btn-small" onClick={onClearDiag}>x</button>
+          </div>
+          <pre className="proxy-diag-pre">{proxyDiag}</pre>
+        </div>
+      )}
       <div className="lang-switcher">
         <button
           className={`lang-option ${lang === "ja" ? "lang-active" : ""}`}
