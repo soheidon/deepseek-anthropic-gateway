@@ -18,9 +18,8 @@ export default function App() {
   const proxyStatus = useMemo(() => {
     if (managedRunning) return "running";
     if (!health) return "unknown";
-    if (health.status === "ok") return "detected";
-    if (health.status === "unreachable") return "unreachable";
-    return "unknown";
+    if (health.reachable) return "detected";
+    return "unreachable";
   }, [health, managedRunning]);
 
   return (
