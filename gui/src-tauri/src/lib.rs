@@ -79,6 +79,83 @@ async fn check_health() -> Result<HealthResponse, String> {
 }
 
 // ---------------------------------------------------------------------------
+// Command 1b: Gateway status (used by dashboard)
+// ---------------------------------------------------------------------------
+
+#[derive(Serialize)]
+pub struct GatewayStatusResponse {
+    reachable: bool,
+    port_listening: bool,
+    checked_at: String,
+    error: Option<String>,
+    managed_child_running: bool,
+    managed_child_pid: Option<u32>,
+    diagnostic: String,
+}
+
+#[tauri::command]
+fn check_gateway_status(state: tauri::State<'_, ProxyState>) -> GatewayStatusResponse {
+    use std::net::TcpStream;
+    use std::time::Duration;
+
+    let now = Local::now();
+    let checked_at = now.format("%Y-%m-%d %H:%M:%S").to_string();
+    let mut diagnostic = String::new();
+
+    // Check managed child
+    let (managed_child_running, managed_child_pid) = {
+        let guard = match state.child.lock() {
+            Ok(g) => g,
+            Err(_) => {
+                return GatewayStatusResponse {
+                    reachable: false,
+                    port_listening: false,
+                    checked_at,
+                    error: Some("Cannot lock proxy state".into()),
+                    managed_child_running: false,
+                    managed_child_pid: None,
+                    diagnostic: "Lock error".into(),
+                };
+            }
+        };
+        match &*guard {
+            Some(child) => {
+                match child.try_wait() {
+                    Ok(Some(_)) => (false, None),
+                    Ok(None) => (true, Some(child.id())),
+                    Err(_) => (false, None),
+                }
+            }
+            None => (false, None),
+        }
+    };
+
+    // Check TCP port 4000
+    let port_reachable = TcpStream::connect_timeout(
+        &"127.0.0.1:4000".parse().unwrap(),
+        Duration::from_millis(500),
+    )
+    .is_ok();
+
+    let port_listening = port_reachable;
+
+    diagnostic = format!(
+        "managed_child_running: {}, managed_child_pid: {:?}, port_reachable: {}",
+        managed_child_running, managed_child_pid, port_reachable
+    );
+
+    GatewayStatusResponse {
+        reachable: port_reachable,
+        port_listening,
+        checked_at,
+        error: None,
+        managed_child_running,
+        managed_child_pid,
+        diagnostic,
+    }
+}
+
+// ---------------------------------------------------------------------------
 // Command 2: Check API key
 // ---------------------------------------------------------------------------
 
@@ -815,6 +892,7 @@ pub fn run() {
         .manage(ProxyState::new())
         .invoke_handler(tauri::generate_handler![
             check_health,
+            check_gateway_status,
             check_api_key,
             get_port_4000_process,
             read_config,

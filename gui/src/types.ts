@@ -66,17 +66,6 @@ export interface GatewayStatus {
   diagnostic: string;
 }
 
-// ---- Gateway status (used by dashboard) ----
-export interface GatewayStatus {
-  reachable: boolean;
-  port_listening: boolean;
-  checked_at: string;
-  error: string | null;
-  managed_child_running: boolean;
-  managed_child_pid: number | null;
-  diagnostic: string;
-}
-
 // ---- Hook shape ----
 export interface AsyncState<T> {
   data: T | null;
