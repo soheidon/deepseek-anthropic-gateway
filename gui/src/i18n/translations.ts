@@ -18,14 +18,10 @@ export const translations = {
 
     // StatusPanel
     "statusPanel.header": "Status",
-    "statusPanel.refreshPort": "Refresh Port",
-    "statusPanel.refreshing": "Checking...",
-    "statusPanel.gatewayHealth": "Gateway Health",
     "statusPanel.ok": "OK",
     "statusPanel.unreachable": "UNREACHABLE",
     "statusPanel.upstream": "Upstream:",
     "statusPanel.port4000": "Port 4000",
-    "statusPanel.listeningPid": "LISTENING (PID {pid})",
     "statusPanel.listening": "LISTENING",
     "statusPanel.notListening": "Not listening",
     "statusPanel.apiKey": "DEEPSEEK_API_KEY",
@@ -99,14 +95,10 @@ export const translations = {
 
     // StatusPanel
     "statusPanel.header": "ステータス",
-    "statusPanel.refreshPort": "ポート再確認",
-    "statusPanel.refreshing": "確認中...",
-    "statusPanel.gatewayHealth": "ゲートウェイ状態",
     "statusPanel.ok": "正常",
     "statusPanel.unreachable": "到達不可",
     "statusPanel.upstream": "Upstream:",
     "statusPanel.port4000": "ポート 4000",
-    "statusPanel.listeningPid": "LISTENING (PID {pid})",
     "statusPanel.listening": "待受中",
     "statusPanel.notListening": "待受なし",
     "statusPanel.apiKey": "DEEPSEEK_API_KEY",
