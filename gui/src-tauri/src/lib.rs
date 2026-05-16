@@ -5,7 +5,6 @@ use std::net::TcpStream;
 use std::sync::Mutex;
 use std::io::{BufRead, BufReader};
 use std::fs::File;
-use std::time::Duration;
 
 // ---------------------------------------------------------------------------
 // Path helpers
@@ -100,7 +99,6 @@ fn check_gateway_status(state: tauri::State<'_, ProxyState>) -> GatewayStatusRes
 
     let now = Local::now();
     let checked_at = now.format("%Y-%m-%d %H:%M:%S").to_string();
-    let mut diagnostic = String::new();
 
     // Check managed child
     let (managed_child_running, managed_child_pid) = {
@@ -139,7 +137,7 @@ fn check_gateway_status(state: tauri::State<'_, ProxyState>) -> GatewayStatusRes
 
     let port_listening = port_reachable;
 
-    diagnostic = format!(
+    let diagnostic = format!(
         "managed_child_running: {}, managed_child_pid: {:?}, port_reachable: {}",
         managed_child_running, managed_child_pid, port_reachable
     );
