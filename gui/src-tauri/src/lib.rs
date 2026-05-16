@@ -1,5 +1,6 @@
 use chrono::Local;
 use serde::{Deserialize, Serialize};
+use std::os::windows::process::CommandExt;
 use std::path::PathBuf;
 use std::sync::Mutex;
 
@@ -555,53 +556,7 @@ impl ProxyState {
 // Command 10: Start proxy
 // ---------------------------------------------------------------------------
 
-fn find_python() -> Option<std::path::PathBuf> {
-    // 1. Try common command names (python, python3, py launcher)
-    for cmd in &["python", "python3", "py"] {
-        if std::process::Command::new(cmd)
-            .arg("--version")
-            .stdout(std::process::Stdio::null())
-            .stderr(std::process::Stdio::null())
-            .spawn()
-            .map(|mut c| c.wait().map(|s| s.success()).unwrap_or(false))
-            .unwrap_or(false)
-        {
-            return Some(std::path::PathBuf::from(cmd));
-        }
-    }
-
-    // 2. Search %LOCALAPPDATA%\Programs\Python for python.exe
-    if let Ok(local) = std::env::var("LOCALAPPDATA") {
-        let base = std::path::PathBuf::from(&local).join("Programs").join("Python");
-        if let Ok(entries) = std::fs::read_dir(&base) {
-            for entry in entries.flatten() {
-                let py = entry.path().join("python.exe");
-                if py.exists() {
-                    return Some(py);
-                }
-            }
-        }
-    }
-
-    // 3. Search C:\Python* and C:\Program Files\Python*
-    for root in ["C:\\", "C:\\Program Files\\"] {
-        let root_path = std::path::Path::new(root);
-        if let Ok(entries) = std::fs::read_dir(root_path) {
-            for entry in entries.flatten() {
-                let name = entry.file_name();
-                let name = name.to_string_lossy();
-                if name.starts_with("Python") && entry.path().is_dir() {
-                    let py = entry.path().join("python.exe");
-                    if py.exists() {
-                        return Some(py);
-                    }
-                }
-            }
-        }
-    }
-
-    None
-}
+const CREATE_NEW_CONSOLE: u32 = 0x00000010;
 
 #[tauri::command]
 fn start_proxy(state: tauri::State<'_, ProxyState>) -> Result<String, String> {
@@ -618,62 +573,31 @@ fn start_proxy(state: tauri::State<'_, ProxyState>) -> Result<String, String> {
     let deepseek_key = std::env::var("DEEPSEEK_API_KEY")
         .map_err(|_| "DEEPSEEK_API_KEY not set — set it as an environment variable".to_string())?;
 
-    let project_root = project_root();
-    let python = find_python()
-        .ok_or_else(|| "Python not found. Install Python 3.10+ and ensure it is in PATH, or use 'py' launcher.".to_string())?;
+    let root = project_root();
 
-    let mut child = std::process::Command::new(&python)
-        .arg("proxy_server.py")
-        .current_dir(&project_root)
-        .env("DEEPSEEK_API_KEY", &deepseek_key)
+    // Resolve python.exe via cmd so PATH matches the user's normal shell
+    let python = std::process::Command::new("cmd")
+        .args(["/C", "where python 2>nul"])
         .stdout(std::process::Stdio::piped())
-        .stderr(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::null())
+        .output()
+        .ok()
+        .and_then(|out| String::from_utf8(out.stdout).ok())
+        .map(|s| s.lines().next().unwrap_or("").trim().to_string())
+        .filter(|s| !s.is_empty())
+        .ok_or_else(|| "Python not found. Install Python 3.10+ or use 'py' launcher.".to_string())?;
+
+    // Spawn in a new visible console window so the user can see the proxy output.
+    // This matches the behavior of running "python proxy_server.py" from cmd.
+    let child = std::process::Command::new(&python)
+        .arg("proxy_server.py")
+        .current_dir(&root)
+        .env("DEEPSEEK_API_KEY", &deepseek_key)
+        .creation_flags(CREATE_NEW_CONSOLE)
         .spawn()
-        .map_err(|e| format!("Cannot start proxy (python={}, dir={}): {}", python.display(), project_root.display(), e))?;
+        .map_err(|e| format!("Cannot start proxy (python={}, dir={}): {}", python, root.display(), e))?;
 
     let pid = child.id();
-
-    // Give the process a moment to start and bind the port.
-    // If it exits immediately, read stderr and return the error.
-    std::thread::sleep(std::time::Duration::from_millis(800));
-    match child.try_wait() {
-        Ok(Some(status)) => {
-            // Process exited immediately — capture stderr for diagnostics
-            let stderr = child
-                .stderr
-                .take()
-                .and_then(|mut r| {
-                    use std::io::Read;
-                    let mut buf = String::new();
-                    r.read_to_string(&mut buf).ok().map(|_| buf)
-                })
-                .unwrap_or_default();
-            let stdout = child
-                .stdout
-                .take()
-                .and_then(|mut r| {
-                    use std::io::Read;
-                    let mut buf = String::new();
-                    r.read_to_string(&mut buf).ok().map(|_| buf)
-                })
-                .unwrap_or_default();
-            let detail = if stderr.is_empty() { stdout } else { stderr };
-            let detail = detail.trim();
-            let detail = if detail.is_empty() {
-                format!("exit code {}", status.code().map_or(-1, |c| c))
-            } else {
-                detail.to_string()
-            };
-            return Err(format!("Proxy exited immediately: {}", detail));
-        }
-        Ok(None) => {
-            // Still running — good
-        }
-        Err(e) => {
-            return Err(format!("Cannot check proxy status: {}", e));
-        }
-    }
-
     *guard = Some(child);
     Ok(format!("started:{}", pid))
 }
