@@ -852,7 +852,7 @@ fn stop_proxy(state: tauri::State<'_, ProxyState>) -> Result<String, String> {
 
     let mut diag_parts: Vec<String> = Vec::new();
 
-    let (had_child, pid_opt, kill_result, wait_result) = match guard.take() {
+    match guard.take() {
         Some(mut child) => {
             let pid = child.id();
             diag_parts.push(format!("Managed child existed, PID={}", pid));
@@ -862,20 +862,17 @@ fn stop_proxy(state: tauri::State<'_, ProxyState>) -> Result<String, String> {
                 Ok(()) => "kill succeeded".to_string(),
                 Err(e) => format!("kill failed: {}", e),
             };
-            diag_parts.push(kill_msg.clone());
+            diag_parts.push(kill_msg);
 
             let wait_res = child.wait();
             let wait_msg = match &wait_res {
                 Ok(status) => format!("wait succeeded, exit code={:?}", status.code()),
                 Err(e) => format!("wait failed: {}", e),
             };
-            diag_parts.push(wait_msg.clone());
-
-            (true, Some(pid), kill_res, wait_res)
+            diag_parts.push(wait_msg);
         }
         None => {
             diag_parts.push("No managed child existed".to_string());
-            (false, None, Ok(()), Ok(std::process::ExitStatus::from_raw(0)))
         }
     };
 
@@ -887,14 +884,6 @@ fn stop_proxy(state: tauri::State<'_, ProxyState>) -> Result<String, String> {
     .is_ok();
 
     diag_parts.push(format!("Port 4000 reachable after stop: {}", port_reachable));
-
-    if !had_child && port_reachable {
-        diag_parts.push(
-            "No managed child exists, but port 4000 is still listening. \
-             The gateway may have been started outside this GUI."
-                .to_string(),
-        );
-    }
 
     Ok(diag_parts.join("\n"))
 }
