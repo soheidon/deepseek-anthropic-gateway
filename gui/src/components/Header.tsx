@@ -7,6 +7,7 @@ interface HeaderProps {
   proxyLoading: boolean;
   proxyError: string | null;
   proxyDiag: string | null;
+  successMessage: string | null;
   onStart: () => void;
   onStop: () => void;
   onClearDiag: () => void;
@@ -18,6 +19,7 @@ export default function Header({
   proxyLoading,
   proxyError,
   proxyDiag,
+  successMessage,
   onStart,
   onStop,
   onClearDiag,
@@ -59,6 +61,9 @@ export default function Header({
           <span className="proxy-error" title={proxyError}>
             {proxyError.length > 120 ? proxyError.slice(0, 120) + "…" : proxyError}
           </span>
+        )}
+        {successMessage && (
+          <span className="proxy-success">{successMessage}</span>
         )}
       </div>
       {proxyDiag && (
