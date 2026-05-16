@@ -4,7 +4,7 @@
 
 ### 概要
 
-DeepSeek API の Anthropic 互換エンドポイントを Claude Desktop / Claude Code Desktop から利用するための薄型プロキシ + GUI 管理ツール。
+DeepSeek API の Anthropic 互換エンドポイントを Claude Desktop / Claude Code Desktop から利用するためのプロキシ + GUI 管理ツール。
 
 Anthropic Messages API リクエストを DeepSeek の Anthropic 互換エンドポイントに透過転送します。変更するのは `model` フィールドのみで、messages / thinking / tool_use / tool_result / streaming SSE は一切改変しません。
 
