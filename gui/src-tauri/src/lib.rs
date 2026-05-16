@@ -1,6 +1,7 @@
 use chrono::Local;
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
+use std::net::TcpStream;
 use std::sync::Mutex;
 
 // ---------------------------------------------------------------------------
@@ -649,11 +650,10 @@ fn start_proxy(state: tauri::State<'_, ProxyState>) -> Result<StartProxyResult, 
     let pid = child.id();
     diag.push(format!("Spawned PID: {}", pid));
 
-    // Poll /health until reachable or timeout (10s, 300ms intervals)
-    let health_url = "http://127.0.0.1:4000/health";
+    // Poll port 4000 until reachable or timeout (8s, 300ms intervals)
     let start = std::time::Instant::now();
-    let timeout = std::time::Duration::from_secs(10);
-    let mut health_ok = false;
+    let timeout = std::time::Duration::from_secs(8);
+    let mut port_ok = false;
 
     loop {
         std::thread::sleep(std::time::Duration::from_millis(300));
@@ -671,14 +671,17 @@ fn start_proxy(state: tauri::State<'_, ProxyState>) -> Result<StartProxyResult, 
             Ok(None) => {}
         }
 
-        // Try /health
-        match reqwest::blocking::get(health_url) {
-            Ok(resp) if resp.status().is_success() => {
-                health_ok = true;
-                diag.push(format!("/health OK after {:.1}s", start.elapsed().as_secs_f32()));
+        // Try TCP connect to 127.0.0.1:4000
+        match TcpStream::connect_timeout(
+            &"127.0.0.1:4000".parse().unwrap(),
+            std::time::Duration::from_millis(200),
+        ) {
+            Ok(_) => {
+                port_ok = true;
+                diag.push(format!("Port 4000 reachable after {:.1}s", start.elapsed().as_secs_f32()));
                 break;
             }
-            _ => {}
+            Err(_) => {}
         }
 
         if start.elapsed() >= timeout {
@@ -686,14 +689,14 @@ fn start_proxy(state: tauri::State<'_, ProxyState>) -> Result<StartProxyResult, 
         }
     }
 
-    if !health_ok {
-        diag.push(format!("/health did not become reachable within {}s", timeout.as_secs()));
+    if !port_ok {
+        diag.push(format!("Port 4000 did not become reachable within {}s", timeout.as_secs()));
         diag.push(format!("See uvicorn log: {}", uvicorn_log_path.display()));
         // Kill the process since it's not working
         let _ = child.kill();
         let _ = child.wait();
         *guard = None;
-        return Err(format!("Proxy process started but /health did not become reachable. Diagnostics:\n{}", diag.join("\n")));
+        return Err(format!("Proxy process started but port 4000 did not become reachable. Diagnostics:\n{}", diag.join("\n")));
     }
 
     *guard = Some(child);
