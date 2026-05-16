@@ -71,13 +71,17 @@ export function useProxyToggle(): {
     setDiag(null);
     setSuccessMessage(null);
     invoke<string>("stop_proxy")
-      .then(() => {
+      .then((diagStr) => {
         setLoading(false);
         setManagedRunning(false);
+        setDiag(diagStr);
+        setSuccessMessage("Gateway stopped.");
       })
       .catch((e: unknown) => {
         setLoading(false);
-        setError(String(e));
+        const errMsg = String(e);
+        setError(errMsg);
+        setDiag(errMsg);
       });
   }, []);
 

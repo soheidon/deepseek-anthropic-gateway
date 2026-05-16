@@ -1,4 +1,4 @@
-import { useState, useMemo } from "react";
+import { useState, useMemo, useCallback } from "react";
 import Header from "./components/Header";
 import TabBar, { type TabId } from "./components/TabBar";
 import StatusPanel from "./components/StatusPanel";
@@ -13,7 +13,7 @@ import { LanguageProvider } from "./i18n";
 export default function App() {
   const [activeTab, setActiveTab] = useState<TabId>("dashboard");
   const { managedRunning, loading: proxyLoading, error: proxyError, diag: proxyDiag, successMessage, start, stop, clearDiag } = useProxyToggle();
-  const { data: health, error: healthError, loading: healthLoading } = useHealthCheck(managedRunning);
+  const { data: health, error: healthError, loading: healthLoading, refresh: healthRefresh } = useHealthCheck(managedRunning);
 
   const proxyStatus = useMemo(() => {
     if (health?.managed_child_running) return "running";
@@ -21,6 +21,13 @@ export default function App() {
     if (health.reachable) return "detected";
     return "unreachable";
   }, [health]);
+
+  const handleStop = useCallback(() => {
+    stop();
+    setTimeout(() => {
+      healthRefresh?.();
+    }, 500);
+  }, [stop, healthRefresh]);
 
   return (
     <LanguageProvider>
@@ -33,7 +40,7 @@ export default function App() {
           proxyDiag={proxyDiag}
           successMessage={successMessage}
           onStart={start}
-          onStop={stop}
+          onStop={handleStop}
           onClearDiag={clearDiag}
         />
         <TabBar activeTab={activeTab} onTabChange={setActiveTab} />
