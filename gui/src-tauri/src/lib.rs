@@ -620,39 +620,80 @@ fn start_proxy(state: tauri::State<'_, ProxyState>) -> Result<StartProxyResult, 
     diag.push(format!("Using python: {}", python));
     diag.push(format!("Launching: {} proxy_server.py in {}", python, root.display()));
 
+    // stdout/stderr → file redirection (not piped) to avoid pipe buffer blocking uvicorn
+    let logs_dir = root.join("Communication-Logs");
+    std::fs::create_dir_all(&logs_dir)
+        .map_err(|e| format!("Cannot create log dir: {}", e))?;
+    let uvicorn_log_path = logs_dir.join("uvicorn-stdout-stderr.log");
+    diag.push(format!("uvicorn log: {}", uvicorn_log_path.display()));
+
+    let log_file = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(&uvicorn_log_path)
+        .map_err(|e| format!("Cannot open uvicorn log file: {}", e))?;
+    let err_file = log_file
+        .try_clone()
+        .map_err(|e| format!("Cannot clone uvicorn log file handle: {}", e))?;
+
     let mut child = std::process::Command::new(&python)
         .arg("proxy_server.py")
         .current_dir(&root)
         .env("DEEPSEEK_API_KEY", &deepseek_key)
-        .stdout(std::process::Stdio::piped())
-        .stderr(std::process::Stdio::piped())
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::from(log_file))
+        .stderr(std::process::Stdio::from(err_file))
         .spawn()
         .map_err(|e| format!("Cannot start proxy: {}\nDiagnostics:\n{}", e, diag.join("\n")))?;
 
     let pid = child.id();
     diag.push(format!("Spawned PID: {}", pid));
 
-    // Wait 2s for uvicorn to bind the port, then check if still alive
-    std::thread::sleep(std::time::Duration::from_millis(2000));
-    match child.try_wait() {
-        Ok(Some(status)) => {
-            let stderr = child.stderr.take()
-                .and_then(|mut r| { use std::io::Read; let mut b = String::new(); r.read_to_string(&mut b).ok().map(|_| b) })
-                .unwrap_or_default();
-            let stdout = child.stdout.take()
-                .and_then(|mut r| { use std::io::Read; let mut b = String::new(); r.read_to_string(&mut b).ok().map(|_| b) })
-                .unwrap_or_default();
-            diag.push(format!("Exit code: {:?}", status.code()));
-            if !stderr.is_empty() { diag.push(format!("stderr:\n{}", stderr.trim())); }
-            if !stdout.is_empty() { diag.push(format!("stdout:\n{}", stdout.trim())); }
-            return Err(format!("Proxy exited after 2s. Diagnostics:\n{}", diag.join("\n")));
+    // Poll /health until reachable or timeout (10s, 300ms intervals)
+    let health_url = "http://127.0.0.1:4000/health";
+    let start = std::time::Instant::now();
+    let timeout = std::time::Duration::from_secs(10);
+    let mut health_ok = false;
+
+    loop {
+        std::thread::sleep(std::time::Duration::from_millis(300));
+
+        // Check if process died
+        match child.try_wait() {
+            Ok(Some(status)) => {
+                diag.push(format!("Process exited with code {:?} after {:.1}s", status.code(), start.elapsed().as_secs_f32()));
+                diag.push(format!("See uvicorn log: {}", uvicorn_log_path.display()));
+                return Err(format!("Proxy exited during startup. Diagnostics:\n{}", diag.join("\n")));
+            }
+            Err(e) => {
+                return Err(format!("Cannot check proxy status: {}", e));
+            }
+            Ok(None) => {}
         }
-        Ok(None) => {
-            diag.push("Process still running after 2s — port should be bound".into());
+
+        // Try /health
+        match reqwest::blocking::get(health_url) {
+            Ok(resp) if resp.status().is_success() => {
+                health_ok = true;
+                diag.push(format!("/health OK after {:.1}s", start.elapsed().as_secs_f32()));
+                break;
+            }
+            _ => {}
         }
-        Err(e) => {
-            return Err(format!("Cannot check proxy status: {}", e));
+
+        if start.elapsed() >= timeout {
+            break;
         }
+    }
+
+    if !health_ok {
+        diag.push(format!("/health did not become reachable within {}s", timeout.as_secs()));
+        diag.push(format!("See uvicorn log: {}", uvicorn_log_path.display()));
+        // Kill the process since it's not working
+        let _ = child.kill();
+        let _ = child.wait();
+        *guard = None;
+        return Err(format!("Proxy process started but /health did not become reachable. Diagnostics:\n{}", diag.join("\n")));
     }
 
     *guard = Some(child);

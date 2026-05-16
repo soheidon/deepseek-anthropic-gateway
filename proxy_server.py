@@ -311,4 +311,12 @@ async def shutdown():
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run("proxy_server:app", host="127.0.0.1", port=4000, log_level="info")
+    logger.info("Starting uvicorn on 127.0.0.1:4000")
+    uvicorn.run(
+        app,
+        host="127.0.0.1",
+        port=4000,
+        log_level="info",
+        access_log=False,
+        log_config=None,
+    )
