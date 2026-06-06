@@ -1,8 +1,12 @@
 """
-DeepSeek Anthropic Model-Rename Proxy (Phase 1)
+DeepSeek Anthropic Model-Rename Proxy (Phase 2 — Image-Aware)
 
 Anthropic Messages API form-data wo sono mama DeepSeek Anthropic
 endpoint ni tensou si, model mei dake wo kakikae ru usugata proxy.
+
+Phase 2 addition: non-vision models (e.g. DeepSeek) automatically strip
+image blocks from conversation history before forwarding, preventing
+"Model does not support image input" errors when switching models mid-thread.
 
 Usage:
     python proxy_server.py
@@ -13,8 +17,9 @@ import json
 import os
 import sys
 import logging
+import copy
 import traceback
-from typing import Optional
+from typing import Optional, Any
 
 import httpx
 from fastapi import FastAPI, Request, Response
@@ -77,6 +82,10 @@ FORCE_ANTHROPIC_VERSION: Optional[str] = config.get("force_anthropic_version")
 ENABLE_CORS: bool = config.get("enable_cors", False)
 UPSTREAM_URL: str = config["upstream_url"]
 DEEPSEEK_API_KEY: str = os.environ.get("DEEPSEEK_API_KEY", "")
+
+# ---- Image sanitization config ----
+MODEL_CAPABILITIES: dict[str, dict[str, bool]] = config.get("model_capabilities", {})
+NON_VISION_IMAGE_POLICY: str = config.get("non_vision_image_policy", "replace")
 
 TIMEOUT = httpx.Timeout(
     connect=30.0,
@@ -153,24 +162,151 @@ def upstream_headers(incoming: dict) -> dict:
     return headers
 
 
-def safe_log_request(method: str, path: str, body: dict):
+def _model_supports_vision(upstream_model: str) -> bool:
+    """Check if the upstream model supports image input."""
+    caps = MODEL_CAPABILITIES.get(upstream_model, {})
+    return caps.get("vision", False)
+
+
+# -- Image block types (current + future compatibility) --
+_IMAGE_CONTENT_TYPES = frozenset({"image", "input_image", "image_url"})
+
+
+def _is_image_block(block: Any) -> bool:
+    """Check if a content block is an image."""
+    return isinstance(block, dict) and block.get("type") in _IMAGE_CONTENT_TYPES
+
+
+def _count_image_blocks_in_content(content: Any) -> int:
+    """Recursively count image blocks in a content array or nested structures."""
+    count = 0
+    if isinstance(content, list):
+        for item in content:
+            if _is_image_block(item):
+                count += 1
+            # Recurse: tool_result.content can contain image blocks
+            if isinstance(item, dict):
+                inner = item.get("content")
+                if inner is not None:
+                    count += _count_image_blocks_in_content(inner)
+    return count
+
+
+def _count_image_blocks(messages: list) -> int:
+    """Count total image blocks across all messages (including nested in tool_result)."""
+    total = 0
+    for msg in messages:
+        content = msg.get("content")
+        if content is not None:
+            total += _count_image_blocks_in_content(content)
+    return total
+
+
+def _sanitize_content_blocks(content: Any, policy: str) -> Any:
+    """
+    Recursively sanitize image blocks in a content array or nested structures.
+
+    Returns the sanitized content. For "replace", image blocks become placeholder text.
+    For "drop", image blocks are removed (caller ensures non-empty result).
+    """
+    if not isinstance(content, list):
+        return content
+
+    result = []
+    for item in content:
+        if _is_image_block(item):
+            if policy == "replace":
+                result.append({
+                    "type": "text",
+                    "text": "[Image omitted: the selected backend model does not support image input. "
+                            "If the image is needed, switch to a vision-capable model.]"
+                })
+            elif policy == "drop":
+                # Skip the image block entirely
+                continue
+            else:
+                # reject handled at a higher level; for safety, treat as replace
+                result.append({
+                    "type": "text",
+                    "text": "[Image omitted: the selected backend model does not support image input. "
+                            "If the image is needed, switch to a vision-capable model.]"
+                })
+        else:
+            if isinstance(item, dict):
+                inner = item.get("content")
+                if inner is not None:
+                    item = dict(item)
+                    item["content"] = _sanitize_content_blocks(inner, policy)
+            result.append(item)
+
+    return result
+
+
+def _sanitize_messages(messages: list, upstream_model: str, policy: str) -> tuple[list, int]:
+    """
+    Sanitize image blocks from messages if the upstream model is non-vision.
+    Returns (sanitized_messages, image_block_count).
+    If policy is "reject" and images exist, returns (None, count) to signal rejection.
+    """
+    if not messages:
+        return messages, 0
+
+    if _model_supports_vision(upstream_model):
+        # Vision-capable: pass through unchanged
+        return messages, 0
+
+    image_count = _count_image_blocks(messages)
+    if image_count == 0:
+        return messages, 0
+
+    if policy == "reject":
+        return None, image_count
+
+    sanitized = copy.deepcopy(messages)
+    for msg in sanitized:
+        content = msg.get("content")
+        if content is not None:
+            msg["content"] = _sanitize_content_blocks(content, policy)
+
+            # After sanitization, ensure content is never an empty array
+            if isinstance(msg["content"], list) and len(msg["content"]) == 0:
+                msg["content"] = [{
+                    "type": "text",
+                    "text": "[Image omitted: the selected backend model does not support image input. "
+                            "If the image is needed, switch to a vision-capable model.]"
+                }]
+
+    return sanitized, image_count
+
+
+def safe_log_request(method: str, path: str, body: dict, image_count: int = 0, sanitized: bool = False):
     """Log request details with model names but without sensitive data."""
     model_in = body.get("model", "?")
     model_out = rewrite_model(model_in)
     stream = body.get("stream", False)
     tools = bool(body.get("tools"))
     msg_count = len(body.get("messages", []))
-    logger.info(
-        f"{method} {path} | model: {model_in} -> {model_out}"
-        f" | stream={stream} | tools={tools} | msgs={msg_count}"
-    )
+
+    parts = [
+        f"{method} {path}",
+        f"model: {model_in} -> {model_out}",
+        f"stream={stream}",
+        f"tools={tools}",
+        f"msgs={msg_count}",
+    ]
+    if image_count > 0:
+        parts.append(f"image_blocks={image_count}")
+        parts.append(f"image_policy={NON_VISION_IMAGE_POLICY}")
+        parts.append(f"sanitized={sanitized}")
+
+    logger.info(" | ".join(parts))
 
 
 # ---------------------------------------------------------------------------
 # App
 # ---------------------------------------------------------------------------
 
-app = FastAPI(title="DeepSeek Anthropic Gateway", version="0.1.0")
+app = FastAPI(title="DeepSeek Anthropic Gateway", version="0.2.0")
 
 if ENABLE_CORS:
     from fastapi.middleware.cors import CORSMiddleware
@@ -184,7 +320,11 @@ if ENABLE_CORS:
 
 @app.get("/health")
 async def health():
-    return {"status": "ok", "upstream": UPSTREAM_URL}
+    return {
+        "status": "ok",
+        "upstream": UPSTREAM_URL,
+        "non_vision_image_policy": NON_VISION_IMAGE_POLICY,
+    }
 
 
 @app.get("/v1/models")
@@ -204,10 +344,44 @@ async def list_models():
 @app.api_route("/v1/messages", methods=["POST"])
 async def proxy_messages(request: Request):
     body = await request.json()
-    safe_log_request("POST", "/v1/messages", body)
 
-    # Rewrite model name only
-    body["model"] = rewrite_model(body.get("model", DEFAULT_MODEL))
+    # 1. Determine the upstream model
+    requested_model = body.get("model", DEFAULT_MODEL)
+    upstream_model = rewrite_model(requested_model)
+
+    # 2. Sanitize image blocks before forwarding (if non-vision model)
+    messages = body.get("messages", [])
+    sanitized_messages, image_count = _sanitize_messages(
+        messages, upstream_model, NON_VISION_IMAGE_POLICY
+    )
+
+    # 3. Reject if policy says so
+    if sanitized_messages is None:
+        safe_log_request("POST", "/v1/messages", body, image_count=image_count, sanitized=False)
+        return JSONResponse(
+            {
+                "error": {
+                    "type": "invalid_request_error",
+                    "message": (
+                        f"This conversation contains image input, but the selected backend model "
+                        f"'{upstream_model}' does not support vision. Start a text-only thread, "
+                        f"switch to a vision-capable model, or set non_vision_image_policy to 'replace'."
+                    ),
+                }
+            },
+            status_code=400,
+        )
+
+    # 4. Apply sanitized body
+    sanitized = image_count > 0
+    if sanitized:
+        body = dict(body)
+        body["messages"] = sanitized_messages
+
+    safe_log_request("POST", "/v1/messages", body, image_count=image_count, sanitized=sanitized)
+
+    # 5. Rewrite model name
+    body["model"] = upstream_model
     is_stream = body.get("stream", False)
 
     upstream_req = httpx.Request(
@@ -270,9 +444,44 @@ async def _handle_stream(client: httpx.AsyncClient, req: httpx.Request):
 @app.api_route("/v1/messages/count_tokens", methods=["POST"])
 async def proxy_count_tokens(request: Request):
     body = await request.json()
-    safe_log_request("POST", "/v1/messages/count_tokens", body)
 
-    body["model"] = rewrite_model(body.get("model", DEFAULT_MODEL))
+    # 1. Determine the upstream model
+    requested_model = body.get("model", DEFAULT_MODEL)
+    upstream_model = rewrite_model(requested_model)
+
+    # 2. Sanitize image blocks (same logic as proxy_messages)
+    messages = body.get("messages", [])
+    sanitized_messages, image_count = _sanitize_messages(
+        messages, upstream_model, NON_VISION_IMAGE_POLICY
+    )
+
+    # 3. Reject if policy says so
+    if sanitized_messages is None:
+        safe_log_request("POST", "/v1/messages/count_tokens", body, image_count=image_count, sanitized=False)
+        return JSONResponse(
+            {
+                "error": {
+                    "type": "invalid_request_error",
+                    "message": (
+                        f"This conversation contains image input, but the selected backend model "
+                        f"'{upstream_model}' does not support vision. Start a text-only thread, "
+                        f"switch to a vision-capable model, or set non_vision_image_policy to 'replace'."
+                    ),
+                }
+            },
+            status_code=400,
+        )
+
+    # 4. Apply sanitized body
+    sanitized = image_count > 0
+    if sanitized:
+        body = dict(body)
+        body["messages"] = sanitized_messages
+
+    safe_log_request("POST", "/v1/messages/count_tokens", body, image_count=image_count, sanitized=sanitized)
+
+    # 5. Rewrite model name
+    body["model"] = upstream_model
 
     client = _get_client()
     try:
@@ -328,6 +537,8 @@ async def startup():
     logger.info(f"Upstream: {UPSTREAM_URL}")
     logger.info(f"Model map: {MODEL_MAP}")
     logger.info(f"Default model: {DEFAULT_MODEL}")
+    logger.info(f"Non-vision image policy: {NON_VISION_IMAGE_POLICY}")
+    logger.info(f"Model capabilities: {MODEL_CAPABILITIES}")
 
 
 @app.on_event("shutdown")

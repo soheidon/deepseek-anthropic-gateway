@@ -6,7 +6,9 @@
 
 DeepSeek API の Anthropic 互換エンドポイントを Claude Desktop / Claude Code Desktop から利用するためのプロキシ + GUI 管理ツール。
 
-Anthropic Messages API リクエストを DeepSeek の Anthropic 互換エンドポイントに透過転送します。変更するのは `model` フィールドのみで、messages / thinking / tool_use / tool_result / streaming SSE は一切改変しません。
+Anthropic Messages API リクエストを DeepSeek の Anthropic 互換エンドポイントに透過転送します。変更するのは `model` フィールドのみで、messages / thinking / tool_use / tool_result / streaming SSE は原則として改変しません。
+
+**画像ブロック対応**: 非 vision モデル（DeepSeek 等）へ送信する場合、履歴内の画像ブロックを自動検出してプレースホルダーテキストに置換します。これにより、同じ Claude Desktop スレッド内で過去に画像を貼った後でも、DeepSeek へ切り替えてテキスト開発を継続できます。動作は `config.json` の `non_vision_image_policy` で制御します。
 
 GUI 管理ツール（Tauri v2 + React + TypeScript）でプロキシの起動・停止、設定編集、ログ確認、API キー管理が可能です。
 
@@ -99,7 +101,16 @@ python proxy_server.py
   "default_model": "deepseek-v4-pro",
   "force_anthropic_version": null,
   "enable_cors": false,
-  "upstream_url": "https://api.deepseek.com/anthropic"
+  "upstream_url": "https://api.deepseek.com/anthropic",
+  "model_capabilities": {
+    "deepseek-v4-pro": {
+      "vision": false
+    },
+    "deepseek-v4-flash": {
+      "vision": false
+    }
+  },
+  "non_vision_image_policy": "replace"
 }
 ```
 
@@ -111,6 +122,8 @@ python proxy_server.py
 | `force_anthropic_version` | null 時は受信ヘッダを転送、設定時は強制上書き |
 | `enable_cors` | CORS 有効/無効 |
 | `upstream_url` | DeepSeek Anthropic 互換エンドポイント |
+| `model_capabilities` | モデルごとの能力（例: `{"vision": false}`）。未定義モデルは `vision: false` 扱い |
+| `non_vision_image_policy` | 非 vision モデルへ画像ブロックを含むリクエストを送る際の動作。`"replace"`（プレースホルダに置換）, `"drop"`（削除）, `"reject"`（400 エラー） |
 
 > 日本語 Windows では `config.json` を **Shift-JIS** で保存する必要があります。GUI の Gateway Settings タブでエンコーディングを切り替えて編集できます。
 
@@ -197,7 +210,9 @@ MIT — 詳細は [LICENSE](LICENSE) を参照。
 
 A thin proxy + GUI manager that routes Claude Desktop / Claude Code API requests through DeepSeek's Anthropic-compatible endpoint.
 
-Anthropic Messages API requests are transparently forwarded to DeepSeek's Anthropic-compatible endpoint. Only the `model` field is rewritten — messages, thinking blocks, tool_use, tool_result, and streaming SSE pass through untouched.
+Anthropic Messages API requests are transparently forwarded to DeepSeek's Anthropic-compatible endpoint. Only the `model` field is rewritten — messages, thinking blocks, tool_use, tool_result, and streaming SSE pass through untouched in principle.
+
+**Image block handling**: When forwarding to a non-vision model (e.g. DeepSeek), image blocks in the conversation history are automatically detected and replaced with placeholder text. This allows switching to DeepSeek mid-thread without errors, even if images were previously attached. Behavior is controlled by `non_vision_image_policy` in `config.json`.
 
 The GUI management tool (Tauri v2 + React + TypeScript) provides start/stop control, config editing, log viewing, and API key management from a native Windows window.
 
@@ -290,7 +305,16 @@ python proxy_server.py
   "default_model": "deepseek-v4-pro",
   "force_anthropic_version": null,
   "enable_cors": false,
-  "upstream_url": "https://api.deepseek.com/anthropic"
+  "upstream_url": "https://api.deepseek.com/anthropic",
+  "model_capabilities": {
+    "deepseek-v4-pro": {
+      "vision": false
+    },
+    "deepseek-v4-flash": {
+      "vision": false
+    }
+  },
+  "non_vision_image_policy": "replace"
 }
 ```
 
@@ -302,6 +326,8 @@ python proxy_server.py
 | `force_anthropic_version` | `null` = passthrough; set to override |
 | `enable_cors` | Enable/disable CORS middleware |
 | `upstream_url` | DeepSeek Anthropic-compatible endpoint URL |
+| `model_capabilities` | Per-model capabilities (e.g. `{"vision": false}`). Undefined models default to `vision: false` |
+| `non_vision_image_policy` | Behavior when sending image blocks to a non-vision model. `"replace"` (placeholder text), `"drop"` (remove), `"reject"` (400 error) |
 
 > Japanese Windows requires saving `config.json` as **Shift-JIS**. Use the Gateway Settings tab in the GUI to toggle encoding.
 

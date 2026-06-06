@@ -22,5 +22,14 @@
   "default_model": "deepseek-v4-pro",
   "force_anthropic_version": null,
   "enable_cors": false,
-  "upstream_url": "https://api.deepseek.com/anthropic"
+  "upstream_url": "https://api.deepseek.com/anthropic",
+  "model_capabilities": {
+    "deepseek-v4-pro": {
+      "vision": false
+    },
+    "deepseek-v4-flash": {
+      "vision": false
+    }
+  },
+  "non_vision_image_policy": "replace"
 }
